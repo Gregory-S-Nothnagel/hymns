@@ -39,58 +39,62 @@
 			{ title: "What A Savior", file: "WHAT_A_SAVIOR.mp3" },
         ];
 		
-		async function loadAudioWithRetry(hymn, attempt = 1) {
-		  return new Promise((resolve) => {
-			const audio = new Audio();
-			audio.preload = 'auto';
-			audio.src = hymn.file;
-			audio.onloadeddata = () => {
-			  console.log(`Loaded "${hymn.title}" on attempt ${attempt}`);
-			  resolve();
-			};
-			audio.onerror = () => {
-			  console.warn(`Error loading "${hymn.title}" on attempt ${attempt}. Retrying in 1 second...`);
-			  // Retry after a 1-second delay.
-			  setTimeout(() => {
-				resolve(loadAudioWithRetry(hymn, attempt + 1));
-			  }, 1000);
-			};
-		  });
+		const CACHE_NAME = "hymns-cache-v1";
+
+		async function cacheHymns() {
+			const status = document.getElementById('status');
+			const container = document.getElementById('hymns');
+
+			if (!('caches' in window)) {
+				status.textContent = "Your browser does not support offline caching.";
+				status.style.color = "red";
+				return;
+			}
+
+			try {
+				const cache = await caches.open(CACHE_NAME);
+
+				// Load and cache each hymn manually
+				await Promise.all(hymns.map(async (hymn) => {
+					const cachedResponse = await cache.match(hymn.file);
+					if (!cachedResponse) {
+						const response = await fetch(hymn.file);
+						if (!response.ok) throw new Error(`Failed to fetch ${hymn.file}`);
+						await cache.put(hymn.file, response);
+					}
+				}));
+
+				// Once all hymns are cached, display the UI
+				hymns.forEach(hymn => {
+					container.innerHTML += `
+						<div class="hymn">
+							<h3>${hymn.title}</h3>
+							<audio controls>
+								<source src="${hymn.file}" type="audio/mpeg">
+							</audio>
+						</div>
+					`;
+				});
+
+				status.textContent = "Ready for offline use!";
+				container.classList.remove('hidden');
+				status.classList.remove('loading');
+
+			} catch (error) {
+				console.error("Caching error:", error);
+				status.textContent = "Error caching hymns. Stay online and refresh.";
+				status.style.color = "red";
+			}
 		}
 
-
-        async function cacheHymns() {
-		  const status = document.getElementById('status');
-		  const container = document.getElementById('hymns');
-
-		  try {
-			// Preload all audio files with retry logic.
-			await Promise.all(hymns.map(hymn => loadAudioWithRetry(hymn)));
-
-			// Once every hymn is loaded, build the player interface.
-			hymns.forEach(hymn => {
-			  container.innerHTML += `
-				<div class="hymn">
-				  <h3>${hymn.title}</h3>
-				  <audio controls>
-					<source src="${hymn.file}" type="audio/mpeg">
-				  </audio>
-				</div>
-			  `;
-			});
-
-			status.textContent = "Ready for offline use!";
-			container.classList.remove('hidden');
-			status.classList.remove('loading');
-
-		  } catch (error) {
-			status.textContent = "Error loading hymns. Stay online and refresh.";
-			status.style.color = "red";
-		  }
+		if ("serviceWorker" in navigator) {
+			navigator.serviceWorker.register("service-worker.js")
+				.then(() => console.log("Service Worker Registered"));
 		}
+
 		
 		// Start caching when page loads
-        window.addEventListener('load', cacheHymns);
+        	window.addEventListener('load', cacheHymns);
 
     </script>
 </body>
